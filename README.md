@@ -1,0 +1,1 @@
+# Beyond-GOTEX-Using-multiple-feature-detectors-for-better-texture-synthesis
