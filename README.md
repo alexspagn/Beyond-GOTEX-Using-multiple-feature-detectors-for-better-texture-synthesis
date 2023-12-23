@@ -10,9 +10,9 @@ Our work delves into enhancing texture synthesis by:
 - Experimenting with various parameter tunings for optimal results.
 
 ## Repository Contents
-- `run_gotex_vgg.py`: Script for single image texture synthesis using both Gaussian patches and VGG-19 features.
+- `run_vgg_synthesis.py`: Script for single image texture synthesis using both Gaussian patches and VGG-19 features.
 - `run_inception_synthesis.py`: Script for single image texture synthesis using both Gaussian patches and InceptionV3 features.
-- `run_cnn_synthesis.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and VGG-19 features.
+- `run_cnn_synthesis_vgg.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and VGG-19 features.
 - `run_cnn_synthesis_incept.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and InceptionV3 features.
 - `experiment_results/`: Folder containing results from our various experiments.
 - `Report.pdf`: Comprehensive report detailing our methods, experiments, and findings.
