@@ -21,8 +21,9 @@ Our work delves into enhancing texture synthesis by:
 To replicate our experiments:
 1. Clone the repository.
 2. Install necessary dependencies.
-3. Run any of the above scripts to see the texture synthesis in action.
-4. Explore `test/` to view our findings.
+3. Download in a folder named "VggModel" the VGG model as "vgg_conv.pth"
+4. Run any of the above scripts to see the texture synthesis in action.
+5. Explore `test/` to view our findings.
 
 ## Authors
 - [Alessio Spagnoletti]
