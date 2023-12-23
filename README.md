@@ -14,7 +14,7 @@ Our work delves into enhancing texture synthesis by:
 - `run_inception_synthesis.py`: Script for single image texture synthesis using both Gaussian patches and InceptionV3 features.
 - `run_cnn_synthesis_vgg.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and VGG-19 features.
 - `run_cnn_synthesis_incept.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and InceptionV3 features.
-- `experiment_results/`: Folder containing results from our various experiments.
+- `test/`: Folder containing results from our various experiments.
 - `Report.pdf`: Comprehensive report detailing our methods, experiments, and findings.
 
 ## Getting Started
@@ -22,7 +22,7 @@ To replicate our experiments:
 1. Clone the repository.
 2. Install necessary dependencies.
 3. Run any of the above scripts to see the texture synthesis in action.
-4. Explore `experiment_results/` to view our findings.
+4. Explore `test/` to view our findings.
 
 ## Authors
 - [Alessio Spagnoletti]
