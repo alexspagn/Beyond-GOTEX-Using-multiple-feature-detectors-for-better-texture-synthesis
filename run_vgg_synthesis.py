@@ -32,5 +32,3 @@ if __name__ == "__main__":
     plt.plot(loss_list)
     plt.savefig('loss.png')
     plt.show()
-        
-
