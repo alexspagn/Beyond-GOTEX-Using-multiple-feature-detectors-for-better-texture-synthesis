@@ -26,7 +26,7 @@ To replicate our experiments:
 5. Explore `test/` to view our findings.
 
 ## Authors
-- [Alessio Spagnoletti]
+- Alessio Spagnoletti
 
 ## Contributions and Feedback
 We welcome contributions and feedback. Feel free to fork the project, submit pull requests, or open issues for discussion.
