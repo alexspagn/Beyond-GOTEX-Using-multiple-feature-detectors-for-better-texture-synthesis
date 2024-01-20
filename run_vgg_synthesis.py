@@ -11,6 +11,7 @@ parser.add_argument('-nmax', '--iter_max', type=int, default=1000, help="max ite
 parser.add_argument('-npsi', '--iter_psi', type=int, default=10, help="max iterations for psi (default: 10)")
 parser.add_argument('-ilr', '--img_lr', type=float, default=1., help="learning rate for the LBFGS image optimizer (default: 1.)")
 parser.add_argument('-plr', '--psi_lr', type=float, default=1., help="learning rate for the SGD psi optimizer (default: 1.)")
+parser.add_argument('-nout', '--n_patches_out', type=int, default=2000, help="number maximum of patches of the target texture used, -1 corresponds to all patches (default: 2000)")
 parser.add_argument('--visu',  action='store_true', help='show intermediate results')
 parser.add_argument('--save',  action='store_true', help='save intermediate results in /tmp folder')
 args = parser.parse_args()
@@ -18,6 +19,7 @@ args = parser.parse_args()
 if __name__ == "__main__":
      
     # select cuda device if available
+    #DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
     print('selected device is '+str(device))
     args.device = device

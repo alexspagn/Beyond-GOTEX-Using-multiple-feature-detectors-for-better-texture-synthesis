@@ -8,14 +8,12 @@ import time
 import model
 from os import mkdir
 from os.path import isdir
-import torchvision.transforms as transforms
 import utils as gu
 
 
 #DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 DEVICE = torch.device("cpu")
-print(DEVICE)
 
 def imread(img_name):
     """
@@ -85,33 +83,6 @@ class gaussian_downsample(nn.Module):
         gaussian_kernel = (1./(2.*math.pi*variance))*torch.exp(-torch.sum((xy_grid - mean)**2., dim=-1)/(2*variance))
         gaussian_kernel = gaussian_kernel / torch.sum(gaussian_kernel)
         return gaussian_kernel.view(1, 1, kernel_size, kernel_size).repeat(3, 1, 1, 1)
-
-class semidual(nn.Module):
-    """
-    Computes the semi-dual loss between inputy and inputx for the dual variable psi
-    """    
-    def __init__(self, inputy, device=DEVICE, usekeops=False):
-        super(semidual, self).__init__()        
-        self.psi = nn.Parameter(torch.zeros(inputy.shape[0], device=device))
-        self.yt = inputy.transpose(1,0)
-        self.usekeops = usekeops
-        self.y2 = torch.sum(self.yt **2,0,keepdim=True)
-    def forward(self, inputx):
-        if self.usekeops:
-            from pykeops.torch import LazyTensor
-            y = self.yt.transpose(1,0)
-            x_i = LazyTensor(inputx.unsqueeze(1).contiguous())
-            y_j = LazyTensor(y.unsqueeze(0).contiguous())
-            v_j = LazyTensor(self.psi.unsqueeze(0).unsqueeze(2).contiguous())
-            sx2_i = LazyTensor(torch.sum(inputx**2,1,keepdim=True).unsqueeze(2).contiguous())
-            sy2_j = LazyTensor(self.y2.unsqueeze(2).contiguous())
-            rmv = sx2_i + sy2_j - 2*(x_i*y_j).sum(-1) - v_j
-            amin = rmv.argmin(dim=1).view(-1)
-            loss = torch.mean(torch.sum((inputx-y[amin,:])**2,1)-self.psi[amin]) + torch.mean(self.psi)
-        else:
-            cxy = torch.sum(inputx**2,1,keepdim=True) + self.y2 - 2*torch.matmul(inputx,self.yt)
-            loss = torch.mean(torch.min(cxy - self.psi.unsqueeze(0),1)[0]) + torch.mean(self.psi)
-        return loss
     
 class gaussian_layer(nn.Module): 
     """
@@ -177,26 +148,22 @@ class SemiDualOptimalTransportLayer(nn.Module):
         self.squaredY = torch.sum(self.targetDataY.transpose(0,1)**2,0,keepdim=True)
 
     def forward(self, inputDataX):
-        loss = 0
-        numInputDataX = inputDataX.size(0)
-        dimInputDataX = inputDataX.size(1)
-        batchSplitSize = numInputDataX 
-        InputDataX = torch.split(inputDataX, batchSplitSize)
-
         # Compute the J loss function
-        for x in InputDataX:            
-            costMatrix = (torch.sum(x**2,1,keepdim=True) + self.squaredY - 2*torch.matmul(x,self.targetDataY.transpose(0,1)))/(2)
-            loss += torch.sum(torch.min(costMatrix - self.dualVariablePsi.unsqueeze(0),1)[0])
-        return loss/numInputDataX + torch.mean(self.dualVariablePsi)
+        cxy = torch.sum(inputDataX**2,1,keepdim=True) + self.squaredY - 2*torch.matmul(inputDataX,self.targetDataY.transpose(0,1))
+        loss = torch.mean(torch.min(cxy - self.dualVariablePsi.unsqueeze(0),1)[0]) + torch.mean(self.dualVariablePsi)
+        return loss
+    
 
-
-# The following code allows us to Generate a single texture using a combination of Gaussian patches
-# and InceptionV3 deep features
-
-def GotexInceptionV32(args):
+#####################################################################################################
+# The following code allows us to Generate a single texture using a combination of Gaussian patches #
+# and InceptionV3 deep features                                                                     #
+#####################################################################################################
+    
+def GotexInceptionV3(args):
     
     # get arguments from argparser
     target_img_path = args.target_image_path
+    n_patches_out = args.n_patches_out
     iter_max = args.iter_max
     iter_psi = args.iter_psi
     visu = args.visu
@@ -293,8 +260,8 @@ def GotexInceptionV32(args):
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(4):
-        real_data = target_im2pat(target_downsampler[s].down_img, 2000) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = semidual(real_data, device=DEVICE, usekeops=False)
+        real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -327,14 +294,14 @@ def GotexInceptionV32(args):
         
         input_downsampler(synth_img.detach()) # evaluate on the current fake image
         for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].psi], lr=1, alpha=0.5, t0=1)
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
             for i in range(iter_psi):
                 fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                 optim_psi.zero_grad()
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
                 optim_psi.step()
-            semidual_loss[s].psi.data = optim_psi.state[semidual_loss[s].psi]['ax']
+            semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
         
         # 2. perform gradient step on the image
         optim_img.zero_grad()        
@@ -350,7 +317,7 @@ def GotexInceptionV32(args):
         for i in range(3):
             synth_features = [A for _ , A in FeatExtractor(synth_img).items()]
             feat = synth_features[i]
-            loss = 0.1*ot_layers[i](feat)    
+            loss = 0.05*ot_layers[i](feat)    
             loss.backward()
             tloss += loss.item()
         
@@ -381,12 +348,15 @@ def GotexInceptionV32(args):
     return synth_img
 
 
-# The following code allows us to Generate a single texture using a combination of Gaussian patches
-# and VGG deep features
+#####################################################################################################
+# The following code allows us to Generate a single texture using a combination of Gaussian patches #
+# and VGG deep features                                                                             #
+#####################################################################################################
 
 def GotexVgg(args):
     
     # get arguments from argparser
+    n_patches_out = args.n_patches_out
     target_img_path = args.target_image_path
     iter_max = args.iter_max
     iter_psi = args.iter_psi
@@ -420,7 +390,7 @@ def GotexVgg(args):
         num_row = args.size[0]
         num_col = args.size[1]
         
-    # visualize every 100 iteration when --visu is True
+    # visualize every 20 iteration when --visu is True
     monitoring_step = 20
         
     # initialize synthesized image
@@ -472,8 +442,8 @@ def GotexVgg(args):
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(n_scales):
-        real_data = target_im2pat(target_downsampler[s].down_img, 2000) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = semidual(real_data, device=DEVICE, usekeops=False)
+        real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -507,7 +477,7 @@ def GotexVgg(args):
 
             input_downsampler(synth_img.detach()) # evaluate on the current fake image
             for s in range(4):            
-                optim_psi = torch.optim.ASGD([semidual_loss[s].psi], lr=1, alpha=0.5, t0=1)
+                optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
                 for i in range(iter_psi):
                     # evaluate on the current fake image
                     fake_data = input_im2pat(input_downsampler[s].down_img, -1)
@@ -515,7 +485,7 @@ def GotexVgg(args):
                     loss = -semidual_loss[s](fake_data)
                     loss.backward()
                     optim_psi.step()
-                semidual_loss[s].psi.data = optim_psi.state[semidual_loss[s].psi]['ax']
+                semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
        
             # update image
             # synth_features = FeatExtractor(synth_img)
@@ -559,8 +529,10 @@ def GotexVgg(args):
     return synth_img, loss_list
 
 
-# The following code allows us to Generate train a CNN as texture generator using a combination of
-# Gaussian patches and VGG deep features
+####################################################################################################
+# The following code allows us to Generate train a CNN as texture generator using a combination of #
+# Gaussian patches and VGG deep features                                                           #
+####################################################################################################
 
 def learn_model_VGG(args):
 
@@ -571,7 +543,6 @@ def learn_model_VGG(args):
     n_patches_in = args.n_patches_in
     n_patches_out = args.n_patches_out
     n_scales = args.scales
-    usekeops = args.keops
     visu = args.visu
     save = args.save
     
@@ -629,8 +600,8 @@ def learn_model_VGG(args):
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(n_scales):
-        real_data = target_im2pat(target_downsampler[s].down_img, 2000) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = semidual(real_data, device=DEVICE, usekeops=False)
+        real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -669,7 +640,7 @@ def learn_model_VGG(args):
         input_downsampler(fake_img.detach())
         
         for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].psi], lr=1, alpha=0.5, t0=1)
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
 
             for i in range(n_iter_psi):
                  # evaluate on the current fake image
@@ -678,7 +649,7 @@ def learn_model_VGG(args):
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
                 optim_psi.step()
-            semidual_loss[s].psi.data = optim_psi.state[semidual_loss[s].psi]['ax']
+            semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
 
         # 2. perform gradient step on the image
         optim_G.zero_grad()
@@ -734,8 +705,10 @@ def learn_model_VGG(args):
     return G
 
 
-# The following code allows us to Generate train a CNN as texture generator using a combination of
-# Gaussian patches and InceptionV3 deep features
+####################################################################################################
+# The following code allows us to Generate train a CNN as texture generator using a combination of #
+# Gaussian patches and InceptionV3 deep features                                                   #
+####################################################################################################
 
 def learn_model_incep(args):
 
@@ -746,7 +719,6 @@ def learn_model_incep(args):
     n_patches_in = args.n_patches_in
     n_patches_out = args.n_patches_out
     n_scales = args.scales
-    usekeops = args.keops
     visu = args.visu
     save = args.save
     
@@ -774,18 +746,16 @@ def learn_model_incep(args):
     target_img = target_img.to(DEVICE)
     
     # extract InceptionV3 features from the target_img
-
     input_features_tmp = FeatExtractor(target_img)
 
     input_features = []
 
     # The detach() is needed else the InceptionV3 layers will be also trained
-
     for _ , A in input_features_tmp.items():
         input_features.append(A.detach())
 
 
-    # update normalizing of the VGG features
+    # update normalizing of the InceptionV3 features
     norm_feat = [torch.sqrt(torch.sum(A.detach()**2,1).mean(0)) for A in input_features]
     FeatExtractor.normfeat = norm_feat
     # update input_features
@@ -803,7 +773,7 @@ def learn_model_incep(args):
         ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE)).to(DEVICE))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=1., alpha=0.5))
 
-    # create VGG feature extractor
+    # create InceptionV3 feature extractor
     FeatExtractor = gu.CustomInceptionV3().to(DEVICE)
     norm_feat_device = [n.to(DEVICE) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
@@ -822,8 +792,8 @@ def learn_model_incep(args):
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(n_scales):
-        real_data = target_im2pat(target_downsampler[s].down_img, 2000) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = semidual(real_data, device=DEVICE, usekeops=False)
+        real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -862,7 +832,7 @@ def learn_model_incep(args):
         input_downsampler(fake_img.detach())
         
         for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].psi], lr=1, alpha=0.5, t0=1)
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
 
             for i in range(n_iter_psi):
                  # evaluate on the current fake image
@@ -871,7 +841,7 @@ def learn_model_incep(args):
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
                 optim_psi.step()
-            semidual_loss[s].psi.data = optim_psi.state[semidual_loss[s].psi]['ax']
+            semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
 
         # 2. perform gradient step on the image
         optim_G.zero_grad()

@@ -1,4 +1,4 @@
-# Beyond-GOTEX-Texture-Synthesis-Project
+# Beyond-GOTEX-Texture-Synthesis
 
 This repository houses the implementation and results of our study "Beyond GOTEX: Using Multiple Feature Detectors for Better Texture Synthesis", an extended and improved version of the paper "A Generative Model for Texture Synthesis based on Optimal Transport between Feature Distributions" that can be found at: https://arxiv.org/abs/2007.03408.
 
@@ -23,7 +23,7 @@ To replicate our experiments:
 2. Install necessary dependencies.
 3. Download in a folder named "VggModel" the VGG model as "vgg_conv.pth"
 4. Run any of the above scripts to see the texture synthesis in action.
-5. Explore `test/` to view our findings.
+5. Explore `test/` to view some of our reproduced textures.
 
 ## Authors
 - Alessio Spagnoletti
