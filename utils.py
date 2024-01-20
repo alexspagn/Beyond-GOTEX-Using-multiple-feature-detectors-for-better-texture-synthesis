@@ -6,10 +6,6 @@ import torch
 import vgg as vgg
 import wget
 import ssl
-import torch.nn as nn
-import torch.nn.functional as F
-from torchvision import models
-
 ssl._create_default_https_context = ssl._create_unverified_context
 
 def ReadImg(imagePath):
@@ -89,6 +85,10 @@ def CreateVggNet(modelFolder, padding=True):
 
 
 
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import models
+
 class CustomInceptionV3(nn.Module):
     '''
     InceptionV3 module with custom features extraction
@@ -105,6 +105,7 @@ class CustomInceptionV3(nn.Module):
 
         self.inception.eval()
 
+        # Selected layers
         self.outKeys = ['Mixed_7c', 'Mixed_6e', 'Mixed_5d', 'Mixed_4a']
 
         # Scaling factors for feature normalization

@@ -15,11 +15,11 @@ def imsave(save_name, tens_img):
     plt.imsave(save_name, np_img)
     return 
 
-# Create an instance of your model
-generator = model.generator(5)  # Instantiate your model class
+# Create an instance of our model
+generator = model.generator(5)
 
 # Load the saved state dictionary into the model
-generator.load_state_dict(torch.load('generator.pt'))  # Replace 'generator.pt' with the actual file path
+generator.load_state_dict(torch.load('generator.pt'))
 
 # Set the model to evaluation mode
 generator.eval()

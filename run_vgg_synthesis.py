@@ -1,7 +1,7 @@
 import argparse
 import torch
 import utils as gu
-from wgenpatex import GotexVggTextureSynthesis
+from wgenpatex import GotexVgg
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     args.device = device
     
     # run synthesis
-    synth_img, loss_list = GotexVggTextureSynthesis(args)
+    synth_img, loss_list = GotexVgg(args)
     
     # plot and save the synthesized texture 
     gu.ShowImg(gu.PostProc(synth_img))

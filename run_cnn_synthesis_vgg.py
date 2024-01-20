@@ -17,7 +17,7 @@ parser.add_argument('--save',  action='store_true', help='save temp results in /
 parser.add_argument('--keops', action='store_true', help='use keops package')
 args = parser.parse_args()
 
-generator = wgenpatex.learn_model(args)
+generator = wgenpatex.learn_model_VGG(args)
 
 # save the texture generator
 torch.save(generator.state_dict(), 'generator.pt')

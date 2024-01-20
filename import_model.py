@@ -4,13 +4,14 @@ import utils as gu
 from os import mkdir
 from os.path import isdir
 
-# Create an instance of your model
-generator = model.generator(5)  # Instantiate your model class
+# Create an instance of our model
+generator = model.generator(5)  # Instantiate our model class
 
 # Load the saved state dictionary into the model
-generator.load_state_dict(torch.load('generator.pt'))  # Replace 'generator.pt' with the actual file path
+generator.load_state_dict(torch.load('generator.pt'))
 
 # Set the model to evaluation mode
+
 generator.eval()
 
 # sample an image and save it

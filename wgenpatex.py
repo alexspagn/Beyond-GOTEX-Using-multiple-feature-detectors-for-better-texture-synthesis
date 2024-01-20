@@ -164,8 +164,6 @@ class patch_extractor(nn.Module):
             idx = torch.randperm(patches.size(0))[:batch_size]
             patches = patches[idx,:]
         return patches
-    
-#####################################
 
 class SemiDualOptimalTransportLayer(nn.Module):
     """
@@ -183,9 +181,6 @@ class SemiDualOptimalTransportLayer(nn.Module):
         numInputDataX = inputDataX.size(0)
         dimInputDataX = inputDataX.size(1)
         batchSplitSize = numInputDataX 
-        #if numInputDataX*dimInputDataX > 2**18:
-         #   print('split')
-        #    batchSplitSize = 2**18   
         InputDataX = torch.split(inputDataX, batchSplitSize)
 
         # Compute the J loss function
@@ -193,8 +188,10 @@ class SemiDualOptimalTransportLayer(nn.Module):
             costMatrix = (torch.sum(x**2,1,keepdim=True) + self.squaredY - 2*torch.matmul(x,self.targetDataY.transpose(0,1)))/(2)
             loss += torch.sum(torch.min(costMatrix - self.dualVariablePsi.unsqueeze(0),1)[0])
         return loss/numInputDataX + torch.mean(self.dualVariablePsi)
-    
-######################################
+
+
+# The following code allows us to Generate a single texture using a combination of Gaussian patches
+# and InceptionV3 deep features
 
 def GotexInceptionV32(args):
     
@@ -231,7 +228,7 @@ def GotexInceptionV32(args):
         num_row = args.size[0]
         num_col = args.size[1]
         
-    # visualize every 100 iteration when --visu is True
+    # visualize every 20 iteration when --visu is True
     monitoring_step = 20
         
     # initialize synthesized image
@@ -258,7 +255,7 @@ def GotexInceptionV32(args):
         input_features.append(A.detach())
 
 
-    # update normalizing of the VGG features
+    # update normalizing of the InceptionV3 features
     norm_feat = [torch.sqrt(torch.sum(A.detach()**2,1).mean(0)) for A in input_features]
     FeatExtractor.normfeat = norm_feat
     # update input_features
@@ -276,13 +273,12 @@ def GotexInceptionV32(args):
         ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device)).to(device))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
-    # create VGG feature extractor (without padding for the target image)
+    # create InceptionV3 feature extractor
     FeatExtractor = gu.CustomInceptionV3().to(device)
     norm_feat_device = [n.to(device) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
 
     n_scales = len(norm_feat)
-
 
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, 4, stride, pad=False)                  
@@ -294,7 +290,6 @@ def GotexInceptionV32(args):
     input_im2pat = patch_extractor(4, pad=True)
     
     
-
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(4):
@@ -386,8 +381,10 @@ def GotexInceptionV32(args):
     return synth_img
 
 
+# The following code allows us to Generate a single texture using a combination of Gaussian patches
+# and VGG deep features
 
-def GotexVggTextureSynthesis(args):
+def GotexVgg(args):
     
     # get arguments from argparser
     target_img_path = args.target_image_path
@@ -437,7 +434,7 @@ def GotexVggTextureSynthesis(args):
     # initialize image optimizer
     image_optimizer = torch.optim.LBFGS([synth_img], lr=img_lr)
 
-    # create VGG feature extractor (without padding for the target image)
+    # create VGG feature extractor
     FeatExtractor = gu.CreateVggNet("VggModel", padding=True)
     # extract VGG features from the target_img
     input_features = FeatExtractor(target_img)
@@ -454,7 +451,7 @@ def GotexVggTextureSynthesis(args):
         ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device)).to(device))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
-    # create VGG feature extractor (without padding for the target image)
+    # create VGG feature extractor
     FeatExtractor = gu.CreateVggNet("VggModel", padding=True).to(device)
     norm_feat_device = [n.to(device) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
@@ -562,9 +559,10 @@ def GotexVggTextureSynthesis(args):
     return synth_img, loss_list
 
 
+# The following code allows us to Generate train a CNN as texture generator using a combination of
+# Gaussian patches and VGG deep features
 
-
-def learn_model(args):
+def learn_model_VGG(args):
 
     target_img_name = args.target_image_path
     patch_size = args.patch_size
@@ -595,7 +593,7 @@ def learn_model(args):
             mkdir(saving_folder)
         gu.SaveImg(saving_folder+'original.png', gu.PostProc(target_img))
 
-    # create VGG feature extractor (without padding for the target image)
+    # create VGG feature extractor
     FeatExtractor = gu.CreateVggNet("VggModel", padding=True)
     # extract VGG features from the target_img
     input_features = FeatExtractor(target_img)
@@ -612,7 +610,7 @@ def learn_model(args):
         ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE)).to(DEVICE))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=1., alpha=0.5))
 
-    # create VGG feature extractor (without padding for the target image)
+    # create VGG feature extractor
     FeatExtractor = gu.CreateVggNet("VggModel", padding=True).to(DEVICE)
     norm_feat_device = [n.to(DEVICE) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
@@ -736,6 +734,8 @@ def learn_model(args):
     return G
 
 
+# The following code allows us to Generate train a CNN as texture generator using a combination of
+# Gaussian patches and InceptionV3 deep features
 
 def learn_model_incep(args):
 
@@ -803,7 +803,7 @@ def learn_model_incep(args):
         ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE)).to(DEVICE))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=1., alpha=0.5))
 
-    # create VGG feature extractor (without padding for the target image)
+    # create VGG feature extractor
     FeatExtractor = gu.CustomInceptionV3().to(DEVICE)
     norm_feat_device = [n.to(DEVICE) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device

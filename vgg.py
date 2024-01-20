@@ -85,7 +85,7 @@ class CustomVGG(nn.Module):
             A = out[key]
             _,c,h,w = A.size()
 
-            # I think it's a sort of downsampling applied to those layers which are too big (more than 64x64)            
+            # Downsampling applied to those layers which are too big (more than 64x64)            
             if (h*w > 64*64) and (self.padding):
                 VGG_stride = int(np.ceil(np.sqrt(h*w-1)/64))
                 offset = np.random.randint(low=0, high=VGG_stride, size=2)
