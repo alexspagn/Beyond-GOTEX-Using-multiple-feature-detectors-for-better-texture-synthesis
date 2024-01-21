@@ -450,7 +450,7 @@ def GotexVgg(args):
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
     input_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=True)
-    target_downsampler(target_img) # evaluate on the target image
+    target_downsampler(target_img.to(DEVICE)) # evaluate on the target image
 
     # create patch extractors
     target_im2pat = patch_extractor(patch_size, pad=False)
@@ -485,7 +485,7 @@ def GotexVgg(args):
             # update dual variable psi
 
             for itp in range(iter_psi):
-                synth_features = [A for _ , A in FeatExtractor(synth_img).items()] # evaluate on the current synthetized image
+                synth_features = FeatExtractor(synth_img) # evaluate on the current synthetized image
                 for i, feat in enumerate(synth_features):
                     psi_optimizers[i].zero_grad()
                     loss = -ot_layers[i](feat.detach())
@@ -616,7 +616,7 @@ def learn_model_VGG(args):
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
     input_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=True)
-    target_downsampler(target_img) # evaluate on the target image
+    target_downsampler(target_img.to(DEVICE)) # evaluate on the target image
 
     # create patch extractors
     target_im2pat = patch_extractor(patch_size, pad=False)
@@ -652,7 +652,7 @@ def learn_model_VGG(args):
         fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
 
         for itp in range(n_iter_psi):
-            synth_features = [A for _ , A in FeatExtractor(fake_img).items()] # evaluate on the current synthetized image
+            synth_features = FeatExtractor(fake_img) # evaluate on the current synthetized image
             for i, feat in enumerate(synth_features):
                 psi_optimizers[i].zero_grad()
                 loss = -ot_layers[i](feat.detach())
@@ -706,10 +706,7 @@ def learn_model_VGG(args):
     
         # monitoring
         if ((it% monitoring_step) == 0):        
-            elapsed_time = int(time.time()-t)
-            print('iteration = '+str(it))
-            print('elapsed time = '+str(elapsed_time)+'s')
-            print('OT loss = ' + str(loss.item()))
+            print('iteration '+str(it)+' - elapsed '+str(int(time.time()-t))+'s - loss = '+str(tloss.item()))
             if visu:
                 gu.ShowImg(gu.PostProc(fake_img))
                 plt.show()
