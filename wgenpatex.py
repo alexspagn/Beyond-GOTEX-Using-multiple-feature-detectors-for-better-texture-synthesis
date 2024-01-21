@@ -300,9 +300,11 @@ def GotexInceptionV3(args):
                 psi_optimizers[i].zero_grad()
                 loss = -ot_layers[i](feat.detach())
                 loss.backward()
-                # normalize gradient
+                # Normalize gradient
                 ot_layers[i].dualVariablePsi.grad.data /= ot_layers[i].dualVariablePsi.grad.data.norm()
-                psi_optimizers[i].step() 
+                psi_optimizers[i].step()
+                # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
+                ot_layers[i].dualVariablePsi.data = psi_optimizers[i].state[ot_layers[i].dualVariablePsi]['ax'] if itp==iter_psi-1 else ot_layers[i].dualVariablePsi.data
         
         input_downsampler(synth_img.detach()) # evaluate on the current synthetized image
         for s in range(n_scales):            
@@ -312,7 +314,10 @@ def GotexInceptionV3(args):
                 optim_psi.zero_grad()
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
+                # Normalize gradient
+                semidual_loss[s].dualVariablePsi.grad.data /= semidual_loss[s].dualVariablePsi.grad.data.norm()
                 optim_psi.step()
+            # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
             semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
         
         # 2. perform gradient step on the image
@@ -480,25 +485,29 @@ def GotexVgg(args):
             # update dual variable psi
 
             for itp in range(iter_psi):
-                synth_features = FeatExtractor(synth_img)
+                synth_features = [A for _ , A in FeatExtractor(synth_img).items()] # evaluate on the current synthetized image
                 for i, feat in enumerate(synth_features):
                     psi_optimizers[i].zero_grad()
                     loss = -ot_layers[i](feat.detach())
                     loss.backward()
-                    # normalize gradient
+                    # Normalize gradient
                     ot_layers[i].dualVariablePsi.grad.data /= ot_layers[i].dualVariablePsi.grad.data.norm()
                     psi_optimizers[i].step()
-
-            input_downsampler(synth_img.detach()) # evaluate on the current fake image
+                    # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
+                    ot_layers[i].dualVariablePsi.data = psi_optimizers[i].state[ot_layers[i].dualVariablePsi]['ax'] if itp==iter_psi-1 else ot_layers[i].dualVariablePsi.data
+            
+            input_downsampler(synth_img.detach()) # evaluate on the current synthetized image
             for s in range(n_scales):            
                 optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, foreach=False, alpha=0.5, t0=1)
                 for i in range(iter_psi):
-                    # evaluate on the current fake image
                     fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                     optim_psi.zero_grad()
                     loss = -semidual_loss[s](fake_data)
                     loss.backward()
+                    # Normalize gradient
+                    semidual_loss[s].dualVariablePsi.grad.data /= semidual_loss[s].dualVariablePsi.grad.data.norm()
                     optim_psi.step()
+                # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
                 semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
        
             # update image
@@ -640,31 +649,32 @@ def learn_model_VGG(args):
     for it in range(n_iter_max):
 
         # 1. update psi
+        fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
 
         for itp in range(n_iter_psi):
-            synth_features = FeatExtractor(fake_img)
+            synth_features = [A for _ , A in FeatExtractor(fake_img).items()] # evaluate on the current synthetized image
             for i, feat in enumerate(synth_features):
                 psi_optimizers[i].zero_grad()
                 loss = -ot_layers[i](feat.detach())
                 loss.backward()
-                # normalize gradient
+                # Normalize gradient
                 ot_layers[i].dualVariablePsi.grad.data /= ot_layers[i].dualVariablePsi.grad.data.norm()
                 psi_optimizers[i].step()
-
-
-        fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
-        input_downsampler(fake_img.detach())
+                # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
+                ot_layers[i].dualVariablePsi.data = psi_optimizers[i].state[ot_layers[i].dualVariablePsi]['ax'] if itp==n_iter_psi-1 else ot_layers[i].dualVariablePsi.data
         
+        input_downsampler(fake_img.detach()) # evaluate on the current synthetized image
         for s in range(n_scales):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=psi_lr, foreach=False, alpha=0.5, t0=1)
-
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, foreach=False, alpha=0.5, t0=1)
             for i in range(n_iter_psi):
-                 # evaluate on the current fake image
-                fake_data = input_im2pat(input_downsampler[s].down_img, n_patches_in)
+                fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                 optim_psi.zero_grad()
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
+                # Normalize gradient
+                semidual_loss[s].dualVariablePsi.grad.data /= semidual_loss[s].dualVariablePsi.grad.data.norm()
                 optim_psi.step()
+            # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
             semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
 
         # 2. perform gradient step on the image
@@ -837,28 +847,29 @@ def learn_model_incep(args):
         fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
 
         for itp in range(n_iter_psi):
-            synth_features = [A for _ , A in FeatExtractor(fake_img).items()]
+            synth_features = [A for _ , A in FeatExtractor(fake_img).items()] # evaluate on the current synthetized image
             for i, feat in enumerate(synth_features):
                 psi_optimizers[i].zero_grad()
                 loss = -ot_layers[i](feat.detach())
                 loss.backward()
-                # normalize gradient
+                # Normalize gradient
                 ot_layers[i].dualVariablePsi.grad.data /= ot_layers[i].dualVariablePsi.grad.data.norm()
                 psi_optimizers[i].step()
-
-
-        input_downsampler(fake_img.detach())
+                # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
+                ot_layers[i].dualVariablePsi.data = psi_optimizers[i].state[ot_layers[i].dualVariablePsi]['ax'] if itp==n_iter_psi-1 else ot_layers[i].dualVariablePsi.data
         
+        input_downsampler(fake_img.detach()) # evaluate on the current synthetized image
         for s in range(n_scales):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=psi_lr, foreach=False, alpha=0.5, t0=1)
-
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, foreach=False, alpha=0.5, t0=1)
             for i in range(n_iter_psi):
-                 # evaluate on the current fake image
-                fake_data = input_im2pat(input_downsampler[s].down_img, n_patches_in)
+                fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                 optim_psi.zero_grad()
                 loss = -semidual_loss[s](fake_data)
                 loss.backward()
+                # Normalize gradient
+                semidual_loss[s].dualVariablePsi.grad.data /= semidual_loss[s].dualVariablePsi.grad.data.norm()
                 optim_psi.step()
+            # Set psi as the average of the parameters, as stored in the optim's buffer 'ax'
             semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
 
         # 2. perform gradient step on the image
