@@ -4,9 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-#DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Generator's convolutional blocks 2D
 class Conv_block2D(nn.Module):

@@ -11,9 +11,7 @@ from os.path import isdir
 import utils as gu
 
 
-#DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-DEVICE = torch.device("cpu")
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def imread(img_name):
     """
@@ -140,17 +138,30 @@ class SemiDualOptimalTransportLayer(nn.Module):
     """
     forward(dualVariablePsi, inputDataX, targetDataY, batchSplitSize=None)
     """
-    def __init__(self, targetDataY):
+    def __init__(self, targetDataY, usekeops=False):
         super(SemiDualOptimalTransportLayer, self).__init__()
-        self.targetDataY = targetDataY
+        self.targetDataY = targetDataY.transpose(0,1)
         self.numTargetDataY = targetDataY.size(0)
         self.dualVariablePsi = nn.Parameter(torch.zeros(self.numTargetDataY))
-        self.squaredY = torch.sum(self.targetDataY.transpose(0,1)**2,0,keepdim=True)
+        self.squaredY = torch.sum(self.targetDataY**2,0,keepdim=True)
+        self.usekeops = usekeops
 
     def forward(self, inputDataX):
         # Compute the J loss function
-        cxy = torch.sum(inputDataX**2,1,keepdim=True) + self.squaredY - 2*torch.matmul(inputDataX,self.targetDataY.transpose(0,1))
-        loss = torch.mean(torch.min(cxy - self.dualVariablePsi.unsqueeze(0),1)[0]) + torch.mean(self.dualVariablePsi)
+        if self.usekeops:
+            from pykeops.torch import LazyTensor
+            y = self.targetDataY.transpose(0,1)
+            x_i = LazyTensor(inputDataX.unsqueeze(1).contiguous())
+            y_j = LazyTensor(y.unsqueeze(0).contiguous())
+            v_j = LazyTensor(self.dualVariablePsi.unsqueeze(0).unsqueeze(2).contiguous())
+            sx2_i = LazyTensor(torch.sum(inputDataX**2,1,keepdim=True).unsqueeze(2).contiguous())
+            sy2_j = LazyTensor(self.squaredY.unsqueeze(2).contiguous())
+            rmv = sx2_i + sy2_j - 2*(x_i*y_j).sum(-1) - v_j
+            amin = rmv.argmin(dim=1).view(-1)
+            loss = torch.mean(torch.sum((inputDataX-y[amin,:])**2,1)-self.dualVariablePsi[amin]) + torch.mean(self.dualVariablePsi)
+        else:
+            cxy = torch.sum(inputDataX**2,1,keepdim=True) + self.squaredY - 2*torch.matmul(inputDataX,self.targetDataY)
+            loss = torch.mean(torch.min(cxy - self.dualVariablePsi.unsqueeze(0),1)[0]) + torch.mean(self.dualVariablePsi)
         return loss
     
 
@@ -164,13 +175,17 @@ def GotexInceptionV3(args):
     # get arguments from argparser
     target_img_path = args.target_image_path
     n_patches_out = args.n_patches_out
+    patch_size = args.patch_size
     iter_max = args.iter_max
     iter_psi = args.iter_psi
     visu = args.visu
     save = args.save
     img_lr = args.img_lr
     psi_lr = args.psi_lr
+    n_scales = args.scales
+    n_layers = args.layers
     device = args.device
+    usekeops = args.keops
 
     # parameters for Gaussian downsampling
     gaussian_kernel_size = 4
@@ -237,7 +252,7 @@ def GotexInceptionV3(args):
     psi_optimizers = []
     ot_layers  = []
     for i,feat in enumerate(input_features):
-        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device)).to(device))
+        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device), usekeops=usekeops).to(device))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
     # create InceptionV3 feature extractor
@@ -245,32 +260,30 @@ def GotexInceptionV3(args):
     norm_feat_device = [n.to(device) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
 
-    n_scales = len(norm_feat)
-
     # Create Gaussian Pyramid downsamplers
-    target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, 4, stride, pad=False)                  
-    input_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, 4, stride, pad=True)
+    target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
+    input_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=True)
     target_downsampler(target_img) # evaluate on the target image
 
     # create patch extractors
-    target_im2pat = patch_extractor(4, pad=False)
-    input_im2pat = patch_extractor(4, pad=True)
+    target_im2pat = patch_extractor(patch_size, pad=False)
+    input_im2pat = patch_extractor(patch_size, pad=True)
     
     
     # create semi-dual module at each scale
     semidual_loss = []
-    for s in range(4):
+    for s in range(n_scales):
         real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE), usekeops=usekeops).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
 
     # Weights on scales
-    prop = torch.ones(4, device=DEVICE)/4 # all scales with same weight
+    prop = torch.ones(n_scales, device=DEVICE)/n_scales # all scales with same weight
 
     # intialize optimizer for image
-    optim_img = torch.optim.Adam([synth_img], lr=0.1)
+    image_optimizer = torch.optim.Adam([synth_img], lr=img_lr)
     
     # initialize the loss vector
     total_loss = np.zeros(iter_max)
@@ -282,19 +295,18 @@ def GotexInceptionV3(args):
         # 1. update psi
         
         for itp in range(iter_psi):
-            synth_features = [A for _ , A in FeatExtractor(synth_img).items()]
+            synth_features = [A for _ , A in FeatExtractor(synth_img).items()] # evaluate on the current synthetized image
             for i, feat in enumerate(synth_features):
                 psi_optimizers[i].zero_grad()
                 loss = -ot_layers[i](feat.detach())
                 loss.backward()
                 # normalize gradient
                 ot_layers[i].dualVariablePsi.grad.data /= ot_layers[i].dualVariablePsi.grad.data.norm()
-                psi_optimizers[i].step()
+                psi_optimizers[i].step() 
         
-        
-        input_downsampler(synth_img.detach()) # evaluate on the current fake image
-        for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
+        input_downsampler(synth_img.detach()) # evaluate on the current synthetized image
+        for s in range(n_scales):            
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, foreach=False, alpha=0.5, t0=1)
             for i in range(iter_psi):
                 fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                 optim_psi.zero_grad()
@@ -304,24 +316,24 @@ def GotexInceptionV3(args):
             semidual_loss[s].dualVariablePsi.data = optim_psi.state[semidual_loss[s].dualVariablePsi]['ax']
         
         # 2. perform gradient step on the image
-        optim_img.zero_grad()        
+        image_optimizer.zero_grad()        
         tloss = 0
         
-        for s in range(4):
+        for s in range(n_scales):
             input_downsampler(synth_img)           
             fake_data = input_im2pat(input_downsampler[s].down_img, -1)
             loss = prop[s]*semidual_loss[s](fake_data)
             loss.backward()
             tloss += loss.item()
         
-        for i in range(3):
+        for i in range(n_layers):
             synth_features = [A for _ , A in FeatExtractor(synth_img).items()]
             feat = synth_features[i]
             loss = 0.05*ot_layers[i](feat)    
             loss.backward()
             tloss += loss.item()
         
-        optim_img.step()
+        image_optimizer.step()
 
         # save loss
         total_loss[it] = tloss
@@ -358,13 +370,17 @@ def GotexVgg(args):
     # get arguments from argparser
     n_patches_out = args.n_patches_out
     target_img_path = args.target_image_path
+    patch_size = args.patch_size
     iter_max = args.iter_max
     iter_psi = args.iter_psi
     visu = args.visu
     save = args.save
     img_lr = args.img_lr
     psi_lr = args.psi_lr
+    n_scales = args.scales
+    n_layers = args.layers
     device = args.device
+    usekeops = args.keops
 
     # parameters for Gaussian downsampling
     gaussian_kernel_size = 4
@@ -418,7 +434,7 @@ def GotexVgg(args):
     psi_optimizers = []
     ot_layers  = []
     for i,feat in enumerate(input_features):
-        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device)).to(device))
+        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(device), usekeops=usekeops).to(device))
         psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
     # create VGG feature extractor
@@ -426,16 +442,14 @@ def GotexVgg(args):
     norm_feat_device = [n.to(device) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
 
-    n_scales = len(norm_feat)
-
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
     input_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=True)
     target_downsampler(target_img) # evaluate on the target image
 
     # create patch extractors
-    target_im2pat = patch_extractor(4, pad=False)
-    input_im2pat = patch_extractor(4, pad=True)
+    target_im2pat = patch_extractor(patch_size, pad=False)
+    input_im2pat = patch_extractor(patch_size, pad=True)
     
     
 
@@ -443,7 +457,7 @@ def GotexVgg(args):
     semidual_loss = []
     for s in range(n_scales):
         real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE), usekeops=usekeops).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -476,8 +490,8 @@ def GotexVgg(args):
                     psi_optimizers[i].step()
 
             input_downsampler(synth_img.detach()) # evaluate on the current fake image
-            for s in range(4):            
-                optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
+            for s in range(n_scales):            
+                optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, foreach=False, alpha=0.5, t0=1)
                 for i in range(iter_psi):
                     # evaluate on the current fake image
                     fake_data = input_im2pat(input_downsampler[s].down_img, -1)
@@ -492,7 +506,7 @@ def GotexVgg(args):
             image_optimizer.zero_grad()
             tloss = 0
             
-            for i in range(4):
+            for i in range(n_layers):
                 synth_features = FeatExtractor(synth_img)
                 feat = synth_features[i]
                 loss = ot_layers[i](feat)    
@@ -501,7 +515,7 @@ def GotexVgg(args):
             
             
             input_downsampler(synth_img)
-            for s in range(4):        
+            for s in range(n_scales):        
                 fake_data = input_im2pat(input_downsampler[s].down_img, -1)
                 loss = 0.00001*prop[s]*semidual_loss[s](fake_data)
                 tloss += loss
@@ -540,11 +554,15 @@ def learn_model_VGG(args):
     patch_size = args.patch_size
     n_iter_max = args.n_iter_max
     n_iter_psi = args.n_iter_psi
+    psi_lr = args.psi_lr
+    img_lr = args.img_lr
     n_patches_in = args.n_patches_in
     n_patches_out = args.n_patches_out
     n_scales = args.scales
+    n_layers = args.layers
     visu = args.visu
     save = args.save
+    usekeops = args.keops
     
     # fixed parameters
     monitoring_step=50
@@ -578,15 +596,13 @@ def learn_model_VGG(args):
     psi_optimizers = []
     ot_layers  = []
     for i,feat in enumerate(input_features):
-        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE)).to(DEVICE))
-        psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=1., alpha=0.5))
+        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE), usekeops=usekeops).to(DEVICE))
+        psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
     # create VGG feature extractor
     FeatExtractor = gu.CreateVggNet("VggModel", padding=True).to(DEVICE)
     norm_feat_device = [n.to(DEVICE) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
-
-    n_scales = len(norm_feat)
 
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
@@ -594,14 +610,14 @@ def learn_model_VGG(args):
     target_downsampler(target_img) # evaluate on the target image
 
     # create patch extractors
-    target_im2pat = patch_extractor(4, pad=False)
-    input_im2pat = patch_extractor(4, pad=True)
+    target_im2pat = patch_extractor(patch_size, pad=False)
+    input_im2pat = patch_extractor(patch_size, pad=True)
 
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(n_scales):
         real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE), usekeops=usekeops).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -610,11 +626,11 @@ def learn_model_VGG(args):
     prop = torch.ones(n_scales, device=DEVICE)/n_scales # all scales with same weight
     
     # initialize generator
-    G = model.generator(n_scales)
+    G = model.generator(n_layers)
     fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
 
     # intialize optimizer for image
-    optim_G = torch.optim.Adam(G.parameters(), lr=0.1)
+    optim_G = torch.optim.Adam(G.parameters(), lr=img_lr)
     
     # initialize the loss vector
     total_loss = np.zeros(n_iter_max)
@@ -639,8 +655,8 @@ def learn_model_VGG(args):
         fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
         input_downsampler(fake_img.detach())
         
-        for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
+        for s in range(n_scales):            
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=psi_lr, foreach=False, alpha=0.5, t0=1)
 
             for i in range(n_iter_psi):
                  # evaluate on the current fake image
@@ -658,7 +674,7 @@ def learn_model_VGG(args):
 
         input_downsampler(fake_img)
         
-        for s in range(5):
+        for s in range(n_layers):
             synth_features = FeatExtractor(fake_img)
             feat = synth_features[s]
             loss = ot_layers[s](feat)
@@ -666,7 +682,7 @@ def learn_model_VGG(args):
 
         tloss.backward(retain_graph=True)
         
-        for s in range(4):        
+        for s in range(n_scales):        
             fake_data = input_im2pat(input_downsampler[s].down_img, n_patches_in)
             loss = 0.00001*prop[s]*semidual_loss[s](fake_data)
             tloss += loss
@@ -716,11 +732,15 @@ def learn_model_incep(args):
     patch_size = args.patch_size
     n_iter_max = args.n_iter_max
     n_iter_psi = args.n_iter_psi
+    psi_lr = args.psi_lr
+    img_lr = args.img_lr
     n_patches_in = args.n_patches_in
     n_patches_out = args.n_patches_out
     n_scales = args.scales
+    n_layers = args.layers
     visu = args.visu
     save = args.save
+    usekeops = args.keops
     
     # fixed parameters
     monitoring_step=50
@@ -770,15 +790,13 @@ def learn_model_incep(args):
     psi_optimizers = []
     ot_layers  = []
     for i,feat in enumerate(input_features):
-        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE)).to(DEVICE))
-        psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=1., alpha=0.5))
+        ot_layers.append(SemiDualOptimalTransportLayer(feat.to(DEVICE), usekeops=usekeops).to(DEVICE))
+        psi_optimizers.append(torch.optim.ASGD(ot_layers[i].parameters(), lr=psi_lr, alpha=0.5))
 
     # create InceptionV3 feature extractor
     FeatExtractor = gu.CustomInceptionV3().to(DEVICE)
     norm_feat_device = [n.to(DEVICE) for n in norm_feat]
     FeatExtractor.normfeat = norm_feat_device
-
-    n_scales = len(norm_feat)
 
     # Create Gaussian Pyramid downsamplers
     target_downsampler = create_gaussian_pyramid(gaussian_kernel_size, gaussian_std, n_scales, stride, pad=False)                  
@@ -786,14 +804,14 @@ def learn_model_incep(args):
     target_downsampler(target_img) # evaluate on the target image
 
     # create patch extractors
-    target_im2pat = patch_extractor(4, pad=False)
-    input_im2pat = patch_extractor(4, pad=True)
+    target_im2pat = patch_extractor(patch_size, pad=False)
+    input_im2pat = patch_extractor(patch_size, pad=True)
 
     # create semi-dual module at each scale
     semidual_loss = []
     for s in range(n_scales):
         real_data = target_im2pat(target_downsampler[s].down_img, n_patches_out) # exctract at most n_patches_out patches from the downsampled target images 
-        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE)).to(DEVICE)
+        layer = SemiDualOptimalTransportLayer(real_data.to(DEVICE), usekeops=usekeops).to(DEVICE)
         semidual_loss.append(layer)
         if visu:
             imshow(target_downsampler[s].down_img)
@@ -802,11 +820,11 @@ def learn_model_incep(args):
     prop = torch.ones(n_scales, device=DEVICE)/n_scales # all scales with same weight
     
     # initialize generator
-    G = model.generator(n_scales)
+    G = model.generator(n_layers)
     fake_img = model.sample_fake_img(G, target_img.shape, n_samples=1)
 
     # intialize optimizer for image
-    optim_G = torch.optim.Adam(G.parameters(), lr=0.1)
+    optim_G = torch.optim.Adam(G.parameters(), lr=img_lr)
     
     # initialize the loss vector
     total_loss = np.zeros(n_iter_max)
@@ -831,8 +849,8 @@ def learn_model_incep(args):
 
         input_downsampler(fake_img.detach())
         
-        for s in range(4):            
-            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=1, alpha=0.5, t0=1)
+        for s in range(n_scales):            
+            optim_psi = torch.optim.ASGD([semidual_loss[s].dualVariablePsi], lr=psi_lr, foreach=False, alpha=0.5, t0=1)
 
             for i in range(n_iter_psi):
                  # evaluate on the current fake image
@@ -847,7 +865,7 @@ def learn_model_incep(args):
         optim_G.zero_grad()
         tloss = 0
 
-        for s in range(4):
+        for s in range(n_scales):
             input_downsampler(fake_img)           
             fake_data = input_im2pat(input_downsampler[s].down_img, -1)
             loss = prop[s]*semidual_loss[s](fake_data)
@@ -855,7 +873,7 @@ def learn_model_incep(args):
 
         tloss.backward(retain_graph=True)
         
-        for i in range(3):
+        for i in range(n_layers):
             synth_features = [A for _ , A in FeatExtractor(fake_img).items()]
             feat = synth_features[i]
             loss = 0.1*ot_layers[i](feat)  
