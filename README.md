@@ -35,7 +35,7 @@ In order to train a Generative CNN using both Gaussian patches and InceptionV3 f
 `python run_cnn_synthesis_inception.py texture_images\demo_texture_9.png --save`
 
 ## Authors
-- Alessio Spagnoletti
+Alessio Spagnoletti
 
 ## Contributions and Feedback
 We welcome contributions and feedback. Feel free to fork the project, submit pull requests, or open issues for discussion.
