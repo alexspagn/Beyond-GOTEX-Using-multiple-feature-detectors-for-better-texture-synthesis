@@ -1,5 +1,7 @@
 # Beyond-GOTEX-Texture-Synthesis
 
+![Slideshow Image 1](slideshow.png)
+
 This repository houses the implementation and results of our study "Beyond GOTEX: Using Multiple Feature Detectors for Better Texture Synthesis", an extended and improved version of the paper "A Generative Model for Texture Synthesis based on Optimal Transport between Feature Distributions" that can be found at: https://arxiv.org/abs/2007.03408.
 
 ## Overview
