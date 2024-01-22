@@ -28,6 +28,7 @@ To replicate our experiments:
 ## Example use
 In order to train and sample a single texture using both Gaussian patches and InceptionV3 features:
 `python run_inception_synthesis.py texture_images\demo_texture_9.png --save`
+
 In order to train a Generative CNN using both Gaussian patches and InceptionV3 features:
 `python run_cnn_synthesis_inception.py texture_images\demo_texture_9.png --save`
 
