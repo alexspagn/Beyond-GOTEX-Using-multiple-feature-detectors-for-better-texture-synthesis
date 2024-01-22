@@ -22,9 +22,14 @@ Our work delves into enhancing texture synthesis by:
 To replicate our experiments:
 1. Clone the repository.
 2. Install necessary dependencies.
-3. Download in a folder named "VggModel" the VGG model as "vgg_conv.pth"
-4. Run any of the above scripts to see the texture synthesis in action.
-5. Explore `test/` to view some of our reproduced textures.
+3. Run any of the above scripts to see the texture synthesis in action.
+4. Explore `test/` to view some of our reproduced textures, some of them have the checkpoint file .pt saved. It can be used for sampling.
+
+## Example use
+In order to train and sample a single texture using both Gaussian patches and InceptionV3 features:
+`python run_inception_synthesis.py texture_images\demo_texture_9.png --save`
+In order to train a Generative CNN using both Gaussian patches and InceptionV3 features:
+`python run_cnn_synthesis_inception.py texture_images\demo_texture_9.png --save`
 
 ## Authors
 - Alessio Spagnoletti
