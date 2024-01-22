@@ -1,7 +1,7 @@
 import argparse
 import torch
 import utils as gu
-from wgenpatex import GotexVgg
+from all_functions import GotexVgg
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()

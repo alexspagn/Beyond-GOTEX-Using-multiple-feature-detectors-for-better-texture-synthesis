@@ -1,5 +1,6 @@
 import argparse
-import wgenpatex
+from all_functions import GotexInceptionV3
+import all_functions
 import torch
 
 parser = argparse.ArgumentParser()
@@ -22,9 +23,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('selected device is '+str(device))
 args.device = device
 
-synth_img = wgenpatex.GotexInceptionV3(args)
+synth_img = GotexInceptionV3(args)
 
 
 # plot and save the synthesized texture 
-wgenpatex.imshow(synth_img)
-wgenpatex.imsave('synthesized.png', synth_img)
+all_functions.imshow(synth_img)
+all_functions.imsave('synthesized.png', synth_img)

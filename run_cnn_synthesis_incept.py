@@ -1,5 +1,6 @@
 import argparse
-import wgenpatex
+from all_functions import learn_model_incep
+import all_functions
 import model
 import torch
 import utils as gu
@@ -24,7 +25,7 @@ args = parser.parse_args()
 device = torch.device('cuda')
 print('selected device is '+str(device))
 
-generator = wgenpatex.learn_model_incep(args)
+generator = learn_model_incep(args)
 
 # save the texture generator
 torch.save(generator.state_dict(), 'generator.pt')
@@ -32,5 +33,5 @@ torch.save(generator.state_dict(), 'generator.pt')
 # sample an image and save it
 synth_img = model.sample_fake_img(generator, [1,3,512,512] , n_samples=1)
 gu.SaveImg('tmp/'+'it-last'+'.png', gu.PostProc(synth_img.clone().detach()))
-wgenpatex.imshow(synth_img)
-wgenpatex.imsave('synthesized.png', synth_img)
+all_functions.imshow(synth_img)
+all_functions.imsave('synthesized.png', synth_img)
