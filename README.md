@@ -16,6 +16,8 @@ Our work delves into enhancing texture synthesis by:
 - `run_inception_synthesis.py`: Script for single image texture synthesis using both Gaussian patches and InceptionV3 features.
 - `run_cnn_synthesis_vgg.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and VGG-19 features.
 - `run_cnn_synthesis_incept.py`: Script for texture synthesis using a generative CNN model and both Gaussian patches and InceptionV3 features.
+- `all_functions.py`: Contains all the routines called by the other scripts.
+- `import_model` and `import_model_incept` can be used to import a .pt checkpoint for the generative CNN and sample textures from it.
 - `test/`: Folder containing results from our various experiments.
 - `CT scans/` : Folder contining tests made on CT scans for two different pathologies.
 - `Report.pdf`: Comprehensive report detailing our methods, experiments, and findings.
@@ -25,7 +27,7 @@ To replicate our experiments:
 1. Clone the repository.
 2. Install necessary dependencies.
 3. Run any of the above scripts to see the texture synthesis in action.
-4. Explore `test/` to view some of our reproduced textures, some of them have the checkpoint file .pt saved. It can be used for sampling.
+4. Explore `test/` to view some of our reproduced textures, some of them have the CNN generator checkpoint file .pt saved. It can be used for sampling.
 
 ## Example use
 In order to train and sample a single texture using both Gaussian patches and InceptionV3 features:
