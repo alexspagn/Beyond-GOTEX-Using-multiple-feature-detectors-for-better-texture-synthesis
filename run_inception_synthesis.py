@@ -14,6 +14,7 @@ parser.add_argument('-plr', '--psi_lr', type=float, default=1., help="learning r
 parser.add_argument('-nout', '--n_patches_out', type=int, default=2000, help="number maximum of patches of the target texture used, -1 corresponds to all patches (default: 2000)")
 parser.add_argument('-sc', '--scales', type=int, default=4, help="number of scales used (default: 4)")
 parser.add_argument('-ly', '--layers', type=int, default=3, help="number of layers used (default: 3)")
+parser.add_argument('-iw', '--INC_weight', type=float, default=0.05, help="weight given by loss function to INC layers (default: 0.05)")
 parser.add_argument('--visu',  action='store_true', help='show intermediate results')
 parser.add_argument('--save',  action='store_true', help='save intermediate results in /tmp folder')
 parser.add_argument('--keops', action='store_true', help='use keops package')
@@ -24,7 +25,6 @@ print('selected device is '+str(device))
 args.device = device
 
 synth_img = GotexInceptionV3(args)
-
 
 # plot and save the synthesized texture 
 all_functions.imshow(synth_img)

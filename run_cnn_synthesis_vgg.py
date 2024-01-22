@@ -4,6 +4,8 @@ import all_functions
 import model
 import torch
 import utils as gu
+import matplotlib.pyplot as plt
+import numpy as np
 
 parser = argparse.ArgumentParser()
 parser.add_argument('target_image_path', help='paths of target texture image')
@@ -16,13 +18,14 @@ parser.add_argument('-nin', '--n_patches_in', type=int, default=-1, help="number
 parser.add_argument('-nout', '--n_patches_out', type=int, default=2000, help="number maximum of patches of the target texture used, -1 corresponds to all patches (default: 2000)")
 parser.add_argument('-sc', '--scales', type=int, default=4, help="number of scales used (default: 4)")
 parser.add_argument('-ly', '--layers', type=int, default=5, help="number of layers used (default: 5)")
+parser.add_argument('-gw', '--Gauss_weight', type=float, default=0.00001, help="weight given by loss function to Gaussian patches (default: 0.00001)")
 parser.add_argument('--visu',  action='store_true', help='show intermediate results')
 parser.add_argument('--save',  action='store_true', help='save temp results in /tmp folder')
 parser.add_argument('--keops', action='store_true', help='use keops package')
 args = parser.parse_args()
 
-#DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = torch.device('cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 print('selected device is '+str(device))
 
 generator = learn_model_VGG(args)
@@ -33,5 +36,7 @@ torch.save(generator.state_dict(), 'generator.pt')
 # sample an image and save it
 synth_img = model.sample_fake_img(generator, [1,3,512,512] , n_samples=1)
 gu.SaveImg('tmp/'+'it-last'+'.png', gu.PostProc(synth_img.clone().detach()))
-all_functions.imshow(synth_img)
-all_functions.imsave('synthesized.png', synth_img)
+ax = plt.imshow(np.clip(gu.PostProc(synth_img.cpu().clone().detach())/255, 0,1))
+ax.set_cmap('gray')
+plt.axis('off')
+plt.show()

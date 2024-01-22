@@ -184,6 +184,7 @@ def GotexInceptionV3(args):
     psi_lr = args.psi_lr
     n_scales = args.scales
     n_layers = args.layers
+    INC_weight = args.INC_weight
     device = args.device
     usekeops = args.keops
 
@@ -334,7 +335,7 @@ def GotexInceptionV3(args):
         for i in range(n_layers):
             synth_features = [A for _ , A in FeatExtractor(synth_img).items()]
             feat = synth_features[i]
-            loss = 0.05*ot_layers[i](feat)    
+            loss = INC_weight*ot_layers[i](feat)    
             loss.backward()
             tloss += loss.item()
         
@@ -384,6 +385,7 @@ def GotexVgg(args):
     psi_lr = args.psi_lr
     n_scales = args.scales
     n_layers = args.layers
+    Gauss_weight = args.Gauss_weight
     device = args.device
     usekeops = args.keops
 
@@ -471,10 +473,7 @@ def GotexVgg(args):
     prop = torch.ones(n_scales, device=DEVICE)/n_scales # all scales with same weight
 
 
-    
-    # initialize loss
-    loss_list = [0]*iter_max
-    starting_time = time.time()
+    t = time.time()
 
     # run optimization
     n_iter=[0]
@@ -514,42 +513,37 @@ def GotexVgg(args):
             # synth_features = FeatExtractor(synth_img)
             image_optimizer.zero_grad()
             tloss = 0
-            
-            for i in range(n_layers):
-                synth_features = FeatExtractor(synth_img)
-                feat = synth_features[i]
-                loss = ot_layers[i](feat)    
-                loss.backward()
-            loss_list[n_iter[0]] = loss.item()
-            
+                   
             
             input_downsampler(synth_img)
             for s in range(n_scales):        
                 fake_data = input_im2pat(input_downsampler[s].down_img, -1)
-                loss = 0.00001*prop[s]*semidual_loss[s](fake_data)
+                loss = Gauss_weight*prop[s]*semidual_loss[s](fake_data)
+                tloss += loss
+            
+            for i in range(n_layers):
+                synth_features = FeatExtractor(synth_img)
+                feat = synth_features[i]
+                loss = ot_layers[i](feat)
                 tloss += loss
             
             tloss.backward()
 
             # monitoring
             if ((n_iter[0]% monitoring_step) == 0):        
-                elapsed_time = int(time.time()-starting_time)
-                print('iteration = '+str(n_iter[0]))
-                print('elapsed time = '+str(elapsed_time)+'s')
-                print('OT loss = ' + str(loss.item()))
+                print('iteration '+str(n_iter[0])+' - elapsed '+str(int(time.time()-t))+'s - loss = '+str(tloss.item()))
                 if visu:
                     gu.ShowImg(gu.PostProc(synth_img))
                     plt.show()
                 if save:
                     gu.SaveImg(saving_folder+'it'+str(n_iter[0])+'.png', gu.PostProc(synth_img.clone().detach()))
-            
 
             n_iter[0]+=1
-            return loss
+            return tloss
 
         image_optimizer.step(closure)
       
-    return synth_img, loss_list
+    return synth_img
 
 
 ####################################################################################################
@@ -569,6 +563,7 @@ def learn_model_VGG(args):
     n_patches_out = args.n_patches_out
     n_scales = args.scales
     n_layers = args.layers
+    Gauss_weight = args.Gauss_weight
     visu = args.visu
     save = args.save
     usekeops = args.keops
@@ -694,7 +689,7 @@ def learn_model_VGG(args):
         
         for s in range(n_scales):        
             fake_data = input_im2pat(input_downsampler[s].down_img, n_patches_in)
-            loss = 0.00001*prop[s]*semidual_loss[s](fake_data)
+            loss = Gauss_weight*prop[s]*semidual_loss[s](fake_data)
             tloss += loss
         
         tloss.backward()
@@ -745,6 +740,7 @@ def learn_model_incep(args):
     n_patches_out = args.n_patches_out
     n_scales = args.scales
     n_layers = args.layers
+    INC_weight = args.INC_weight
     visu = args.visu
     save = args.save
     usekeops = args.keops
@@ -875,7 +871,7 @@ def learn_model_incep(args):
 
         for s in range(n_scales):
             input_downsampler(fake_img)           
-            fake_data = input_im2pat(input_downsampler[s].down_img, -1)
+            fake_data = input_im2pat(input_downsampler[s].down_img, n_patches_in)
             loss = prop[s]*semidual_loss[s](fake_data)
             tloss += loss
 
@@ -884,7 +880,7 @@ def learn_model_incep(args):
         for i in range(n_layers):
             synth_features = [A for _ , A in FeatExtractor(fake_img).items()]
             feat = synth_features[i]
-            loss = 0.1*ot_layers[i](feat)  
+            loss = INC_weight*ot_layers[i](feat)  
             tloss += loss
         
         tloss.backward()

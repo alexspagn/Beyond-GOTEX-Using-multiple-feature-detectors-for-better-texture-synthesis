@@ -15,6 +15,7 @@ parser.add_argument('-plr', '--psi_lr', type=float, default=1., help="learning r
 parser.add_argument('-nout', '--n_patches_out', type=int, default=2000, help="number maximum of patches of the target texture used, -1 corresponds to all patches (default: 2000)")
 parser.add_argument('-sc', '--scales', type=int, default=4, help="number of scales used (default: 4)")
 parser.add_argument('-ly', '--layers', type=int, default=5, help="number of layers used (default: 5)")
+parser.add_argument('-gw', '--Gauss_weight', type=float, default=0.00001, help="weight given by loss function to Gaussian patches (default: 0.00001)")
 parser.add_argument('--visu',  action='store_true', help='show intermediate results')
 parser.add_argument('--save',  action='store_true', help='save intermediate results in /tmp folder')
 parser.add_argument('--keops', action='store_true', help='use keops package')
@@ -28,12 +29,10 @@ if __name__ == "__main__":
     args.device = device
     
     # run synthesis
-    synth_img, loss_list = GotexVgg(args)
+    synth_img = GotexVgg(args)
     
     # plot and save the synthesized texture 
     gu.ShowImg(gu.PostProc(synth_img))
     plt.show()
     gu.SaveImg('synthesized.png', gu.PostProc(synth_img.clone().detach()))
-    plt.plot(loss_list)
-    plt.savefig('loss.png')
     plt.show()
